@@ -7,3 +7,4 @@ __pycache__/
 .pytest_cache/
 figures/*.png
 !figures/.gitkeep
+docs/findings.md
