@@ -141,9 +141,16 @@ class Spectrum:
         ``values`` is given on the full grid (Dirichlet entries are ignored).
         Uses ``sum_j h w_j u_nj values_j``, the trapezoidal discretisation of
         ``int f_n phi`` (spec 1.7).
+
+        Since ``u = v / sqrt(h)`` and ``v^T W v = I``, this equals
+        ``sqrt(h) * v^T W values``.  The ``h`` factor is **not** optional: it
+        is what makes the projection of a normalised eigenfunction return
+        ``1``.  Dropping it returns ``1/sqrt(h)`` instead (a factor of
+        ``sqrt(31) ~ 5.57`` on an ``N = 30`` grid), which is the mode
+        coefficient in the raw ``v`` basis, not the physical one.
         """
         flat = _flatten_active(self.domain, values)
-        return self.v.T @ (self.weights * flat)
+        return _hfactor(self.domain) * (self.u.T @ (self.weights * flat))
 
 
 def _flatten_active(domain, values: np.ndarray) -> np.ndarray:
@@ -231,6 +238,12 @@ def solve(
     v = np.asarray(v, dtype=float)[:, :nmodes]
     u = np.asarray(u, dtype=float)[:, :nmodes]
 
+    # SPEC-DISCREPANCY (spec 3.3, 6 item 2): the spec calls omega_0^2 = m^2
+    # "exactly".  What is exact is lambda_0 = 0 as an eigenvalue of the
+    # assembled matrix (the constant vector is annihilated bitwise); `eigh`
+    # returns it as O(1e-14) round-off, so omega_0^2 = m^2 + O(1e-14) and
+    # omega_0 = |m| + O(1e-14/(2|m|)) -- and for m = 0, omega_0 = sqrt(lam_0)
+    # = O(1e-7), not 0.  Behaviour left as is; the theorist is adjudicating.
     return Spectrum(
         lam=lam,
         omega2=lam + m * m,
@@ -292,12 +305,13 @@ def time_evolution(
     -------
     ndarray of shape ``(len(times),) + grid shape``.
     """
-    flat_phi = _flatten_active(spectrum.domain, phi0)
-    flat_dphi = _flatten_active(spectrum.domain, dphi0)
-    wv = spectrum.weights * spectrum.v  # (ndof, nmodes)
-
-    a = wv.T @ flat_phi  # a_n = sum_j w_j v_nj phi0_j
-    b = wv.T @ flat_dphi
+    # a_n = <f_n, phi0> and b_n = <f_n, dphi0>, the same physical
+    # coefficients :meth:`Spectrum.project` returns.  The resummation then
+    # uses the function values ``u`` -- ``a_n u_n = (v_n^T W phi0) v_n``,
+    # so this is the same expansion in the raw ``v`` basis, with the
+    # sqrt(h) factors explicitly on both sides.
+    a = spectrum.project(phi0)
+    b = spectrum.project(dphi0)
 
     times = np.asarray(times, dtype=float)
     out = np.empty((times.size, spectrum.v.shape[0]), dtype=float)
@@ -310,7 +324,7 @@ def time_evolution(
             else:
                 cos_t = np.cos(om * t)
                 sinc_t = np.sin(om * t) / om
-            acc += (a[n] * cos_t + b[n] * sinc_t) * spectrum.v[:, n]
+            acc += (a[n] * cos_t + b[n] * sinc_t) * spectrum.u[:, n]
         if np.max(np.abs(acc.imag)) > 1e-8 * max(1.0, np.max(np.abs(acc.real))):
             raise RuntimeError(
                 "time evolution produced a complex field from real initial "

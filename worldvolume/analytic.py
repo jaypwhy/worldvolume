@@ -116,6 +116,14 @@ def _det_positive(k: float, kappa0: float, kappaL: float, L: float, scale: float
     elif math.isinf(kappaL):
         val = kappa0 * s + k * c
     else:
+        # SPEC-DISCREPANCY (spec 3.5.4 bullet 2): the spec states that
+        # kappa_0 = 0 with finite kappa_L reduces (3.12) to cos(kL) = 0, "a
+        # single Robin end already forces the half-integer set".  That is the
+        # kappa_L -> infinity limit, not a finite coupling: with kappa_0 = 0
+        # this determinant is -k^2 sin(kL) + kappa_L k cos(kL), i.e.
+        # tan(kL) = kappa_L / k, whose roots sit between n*pi and (n+1/2)*pi.
+        # This code implements tan(kL) = kappa_L/k.  Left as is pending the
+        # theorist's adjudication.
         val = (kappa0 * kappaL - k * k) * s + (kappa0 + kappaL) * k * c
     return val / scale
 
@@ -294,6 +302,14 @@ def robin_eigenvalues(
     of (3.12), the negative roots of (3.19) when a coupling is negative, and the
     zero mode of (3.18) are merged and sorted ascending.  ``lambda_min`` can be
     negative and must not be "fixed".
+
+    SPEC-DISCREPANCY (spec 3.5.6 item 2): the spec says the number of negative
+    eigenvalues is one "for the couplings I checked" (kappa = -0.5, -2, -3, -10
+    at both ends).  That holds for kappa = -0.5 and -2 but not for -3 and -10,
+    which have *two* each: the two roots straddle mu = |kappa| and are only
+    ~|kappa| exp(-|kappa| L) apart, so a sign-change scan steps over the dip.
+    This function returns both.  Left as is pending the theorist's
+    adjudication.
     """
     if nmodes <= 0:
         return np.zeros(0)

@@ -140,8 +140,13 @@ def test_time_evolution_reproduces_initial_data():
     g = Grid1D(L=1.0, N=24, left=Neumann(), right=Dirichlet())
     spec = solve(g, m=0.3)
     x = g.x
-    phi0 = np.sin(2 * np.pi * x) + 0.5 * np.cos(np.pi * x)
+    # the initial data has to respect the Dirichlet end, or it is not data this
+    # problem admits: time_evolution ignores the Dirichlet entry (it is zero by
+    # construction), so a phi0 that is nonzero there cannot be reproduced.
+    # sin(2 pi x) and sin(pi x) both vanish at x = 1.
+    phi0 = np.sin(2 * np.pi * x) + 0.5 * np.sin(np.pi * x)
     dphi0 = np.zeros_like(x)
+    assert phi0[-1] == pytest.approx(0.0, abs=1e-15)  # Dirichlet end
     out = time_evolution(spec, phi0, dphi0, [0.0])
     assert out.shape == (1, g.n_nodes)
     assert np.allclose(out[0], phi0, atol=1e-12)
@@ -173,13 +178,19 @@ def test_single_mode_evolves_as_a_cosine():
 
 def test_time_evolution_satisfies_the_klein_gordon_equation():
     # a genuine check of the helper: phi(t+dt) - 2 phi(t) + phi(t-dt) must equal
-    # dt^2 (Delta_h phi - m^2 phi), with Delta_h the assembled operator
-    from worldvolume import assemble
+    # dt^2 d^2phi/dt^2, and the semi-discrete KG equation on the unknown vector
+    # f is  f'' = -(A' f + m^2 f)  with A' = -Delta_h the *ghost-eliminated*
+    # operator of spec 4.2.  Two things matter here:
+    #   * it is A', not the symmetric A_sym = W A' that assemble() also returns:
+    #     A_sym v = lambda W v is only the symmetric *form* of the same
+    #     eigenproblem, so A_sym v = W (A' v), not A' v.
+    #   * the sign: A' = -Delta, so f'' = -(A' f + m^2 f), not +A' f - m^2 f.
+    from worldvolume import laplacian_1d_unsymmetrised
 
     m = 0.4
     g = Grid1D(L=1.0, N=20, left=Neumann(), right=Dirichlet())
     spec = solve(g, m=m)
-    a, _ = assemble(g)
+    a_prime = laplacian_1d_unsymmetrised(g)
     x = g.x
     phi0 = np.exp(-((x - 0.4) ** 2) / 0.02)
     dphi0 = np.zeros_like(x)
@@ -187,8 +198,8 @@ def test_time_evolution_satisfies_the_klein_gordon_equation():
     out = time_evolution(spec, phi0, dphi0, [-dt, 0.0, dt])
     # restrict to active nodes; the operator acts on the unknown vector
     active = g.active
-    laplacian_phi = a @ out[1][active]
-    rhs = (laplacian_phi - m * m * out[1][active]) * dt**2
+    laplacian_phi = a_prime @ out[1][active]  # = -Delta_h phi
+    rhs = -(laplacian_phi + m * m * out[1][active]) * dt**2
     lhs = out[2][active] - 2 * out[1][active] + out[0][active]
     scale = max(np.max(np.abs(lhs)), 1e-30)
     assert np.max(np.abs(lhs - rhs)) < 1e-6 * scale

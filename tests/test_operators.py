@@ -5,6 +5,8 @@ rows, the Dirichlet elimination, the symmetrisation ``A_sym = W A'``, and the
 2D Kronecker structure with its index convention.
 """
 
+import math
+
 import numpy as np
 import pytest
 import scipy.sparse as sp

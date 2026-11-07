@@ -114,6 +114,12 @@ def test_robin_error_coefficient_is_not_one_twelfth(mode_index):
         f"coefficient -- the Robin boundary row is probably wrong"
     )
     # the spec's measured values at N=40: mode 1 -> -0.46, mode 3 -> magnitude 0.71
+    # SPEC-DISCREPANCY (spec 4.7.1, the Robin "ratio" column): the spec prints
+    # the mode-1 relative error as +6.75e-5 and then calls it "-0.46 times" the
+    # naive -(kh)^2/12, which is itself negative -- the two signs contradict
+    # each other, and "mode 3 -> -0.71 times" has the opposite one again.  The
+    # ratio is therefore asserted on its magnitude here.  Left as is pending
+    # the theorist's adjudication.
     assert abs(ratio) == pytest.approx(0.46 if mode_index == 0 else 0.71, abs=0.02)
 
 

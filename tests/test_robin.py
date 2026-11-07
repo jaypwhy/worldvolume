@@ -83,7 +83,15 @@ def test_neumann_end_with_a_finite_robin_end_gives_tan_kL_equals_kappa_over_k():
         k = robin_wavenumbers(0.0, kappaL, 1.0, 3)
         for kk in k:
             assert math.tan(kk) == pytest.approx(kappaL / kk, rel=1e-9)
-        assert np.allclose(k, np.arange(0, 3) * math.pi, atol=1.0)  # near n pi
+        # Each root lies strictly between the Neumann value n pi (kappa_L = 0)
+        # and the Dirichlet value (n + 1/2) pi (kappa_L -> infinity): that is
+        # the precise sense in which they are "near n pi" and move towards the
+        # half-integer set as kappa_L grows.  (An absolute atol=1.0 against
+        # n pi is wrong for the n = 0 root, which sits at 1.19 for kappa_L = 3
+        # -- already 1.19 away from 0.)
+        n = np.arange(3)
+        assert np.all(k > n * math.pi)
+        assert np.all(k < (n + 0.5) * math.pi)
     # the limit kappa_L -> infinity does give the half-integer set
     k = robin_wavenumbers(0.0, 1e8, 1.0, 4)
     assert np.allclose(k, (np.arange(0, 4) + 0.5) * math.pi, rtol=1e-7)
@@ -114,7 +122,13 @@ def test_dirichlet_robin_is_isospectral_to_robin_dirichlet():
 # ---------------------------------------------------------------------------
 SMALL_KAPPA_TABLE = [
     # kappa, k_1, lambda_1, 2 kappa / L
-    (1e-3, "0.0447176", "0.0020000"),
+    # NOTE: the spec's table (3.5.5) prints lambda_1 = 0.0020000 for
+    # kappa = 1e-3, which is 2 kappa/L (the asymptote, to 5 s.f.) and not the
+    # eigenvalue: the spec's own k_1 column gives k_1^2 = 0.0447176^2 =
+    # 0.0019997.  The other six rows are self-consistent (k_1^2 = lambda_1);
+    # only that one is a rounding slip, so the entry below is the value
+    # consistent with the spec's own k_1.
+    (1e-3, "0.0447176", "0.0019997"),
     (1e-2, "0.1413036", "0.0199667"),
     (0.1, "0.4435208", "0.196711"),
     (1.0, "1.3065424", "1.707053"),
@@ -143,16 +157,22 @@ def test_robin_eigenfunctions_are_normalised_and_obey_the_boundary_conditions():
     L, kappa0, kappaL = 1.0, 0.5, 3.0
     k = robin_wavenumbers(kappa0, kappaL, L, 3)
     x = np.linspace(0.0, L, 20001)
+    dx = x[1] - x[0]
     for kk in k:
         f = robin_mode(kk, kappa0, L, x)
         norm = np.trapezoid(f**2, x)
         assert norm == pytest.approx(1.0, rel=1e-6)
-        # Robin at x=0: -f'(0) + kappa_0 f(0) = 0, i.e. f'(0) = kappa_0 f(0)
-        d0 = (f[1] - f[0]) / (x[1] - x[0])
-        assert d0 == pytest.approx(kappa0 * f[0], rel=1e-3)
+        # Robin at x=0: -f'(0) + kappa_0 f(0) = 0, i.e. f'(0) = kappa_0 f(0).
+        # The derivative of a sampled function has to be second order or the
+        # test measures its own truncation error: a two-point one-sided
+        # difference is off by (dx/2) k^2 f(0), which is 2.3e-3 relative for
+        # the k = 6.77 mode at dx = 5e-5 -- larger than any sane tolerance.
+        # The three-point one-sided stencil is O(dx^2).
+        d0 = (-3.0 * f[0] + 4.0 * f[1] - f[2]) / (2.0 * dx)
+        assert d0 == pytest.approx(kappa0 * f[0], rel=1e-6)
         # Robin at x=L: f'(L) = -kappa_L f(L)
-        dL = (f[-1] - f[-2]) / (x[-1] - x[-2])
-        assert dL == pytest.approx(-kappaL * f[-1], rel=1e-3)
+        dL = (3.0 * f[-1] - 4.0 * f[-2] + f[-3]) / (2.0 * dx)
+        assert dL == pytest.approx(-kappaL * f[-1], rel=1e-6)
 
 
 def test_robin_normalisation_limits():

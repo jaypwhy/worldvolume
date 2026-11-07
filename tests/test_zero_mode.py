@@ -54,7 +54,15 @@ def test_neumann_zero_mode_is_exactly_zero(N, L, m):
     assert float(ones @ (a @ ones)) == 0.0
     # omega_0^2 = m^2 to the same round-off, and omega_0 = |m|
     assert abs(spec.omega2[0] - m * m) < 1e-12 * max(1.0, m * m)
-    assert spec.omega[0] == pytest.approx(complex(abs(m)), abs=1e-13)
+    # omega_0 = sqrt(m^2 + lambda_0), and lambda_0 is only known to round-off
+    # (~1e-13 here).  The square root *amplifies* that: |d omega_0| is
+    # |lambda_0|/(2|m|) for m != 0 and sqrt(|lambda_0|) for m = 0 (where the
+    # value is ~1e-7, not 0).  So the tolerance has to be derived from the
+    # actual lambda_0, not hard-coded below what the round-off can deliver.
+    domega = (
+        math.sqrt(abs(spec.lam[0])) if m == 0.0 else abs(spec.lam[0]) / (2.0 * abs(m))
+    )
+    assert spec.omega[0] == pytest.approx(complex(abs(m)), abs=domega + 1e-14)
     # the eigenvector is the constant vector, and u = 1/sqrt(L)
     v = spec.v[:, 0]
     assert np.max(np.abs(v - v[0])) < 1e-13
@@ -62,8 +70,11 @@ def test_neumann_zero_mode_is_exactly_zero(N, L, m):
     if u[0] < 0:
         u = -u
     assert np.allclose(u, 1.0 / math.sqrt(L), rtol=1e-13, atol=1e-15)
-    # W-orthonormal: sum_j w_j v_j^2 = 1 with v constant means v = 1/sqrt(sum w)
-    assert v[0] == pytest.approx(1.0 / math.sqrt(np.sum(g.weights)), rel=1e-14)
+    # W-orthonormal: sum_j w_j v_j^2 = 1 with v constant means |v_j| = 1/sqrt(sum w).
+    # The *sign* of an eigenvector is arbitrary (eigh returns either), so the
+    # assertion is on the magnitude -- asserting v[0] itself tests which sign
+    # LAPACK happened to pick, which is not physics.
+    assert abs(v[0]) == pytest.approx(1.0 / math.sqrt(np.sum(g.weights)), rel=1e-14)
 
 
 def test_neumann_zero_mode_normalisation_is_not_sqrt2_over_L():
@@ -104,7 +115,10 @@ def test_mixed_nd_has_no_zero_mode():
     box = Box2D.from_lengths(1.0, 8, Neumann(), 1.5, 8, Dirichlet())
     spec = solve(box, nmodes=2)
     h2 = box.y.h
-    k2 = 0.5 * math.pi / 1.5
+    # a *full* half-wave in y: Dirichlet at both ends of [0, L_2] means
+    # k_1 = pi/L_2.  (pi/(2L_2) would be the quarter-wave of a single
+    # Dirichlet end, which is not this problem.)
+    k2 = math.pi / 1.5
     discrete = 4.0 / h2**2 * math.sin(k2 * h2 / 2) ** 2
     assert spec.lam[0] == pytest.approx(discrete, rel=1e-12)
     # ... and it is within O(h^2) of the continuum (pi/L_2)^2
